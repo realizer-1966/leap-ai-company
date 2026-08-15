@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# dsh 세션/캐시
+.sessions/
+*.zstd
+*.tmp*
+
+# 로그
+*.log
+
+# OS
+.DS_Store
