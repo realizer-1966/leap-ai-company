@@ -159,6 +159,8 @@ function runCustomTool(toolName, params) {
       return get_exchange_rate(args);
     case "get_specific_date_weather":
       return get_specific_date_weather(args);
+    case "get_current_weather":
+      return get_current_weather(args);
     default:
       return null;
   }
@@ -206,6 +208,61 @@ function get_exchange_rate(args) {
     return "1 " + from + " = " + rate + " " + to + " (기준일: " + data.time_last_update_utc + ")";
   } catch (err) {
     return "환율 조회 오류: " + String(err);
+  }
+}
+
+/**
+ * 현재 날씨 조회 — open-meteo API 직접 구현.
+ * URL: <WebAppURL>?accessKey=insytics&tool=get_current_weather&location=Seoul
+ * (location은 도시명 또는 위도,경도)
+ */
+function get_current_weather(args) {
+  const location = (args && args.location) || "Seoul";
+
+  try {
+    // 위도/경도 해석
+    let lat, lon, cityName = location;
+    if (location.indexOf(",") > -1) {
+      const parts = location.split(",");
+      lat = parseFloat(parts[0].trim());
+      lon = parseFloat(parts[1].trim());
+    } else {
+      // 도시명 → 위도/경도 (geocoding API)
+      const geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=" +
+        encodeURIComponent(location) + "&count=1&language=ko&format=json";
+      const geoResp = UrlFetchApp.fetch(geoUrl, { muteHttpExceptions: true });
+      const geoData = JSON.parse(geoResp.getContentText());
+      if (!geoData.results || geoData.results.length === 0) {
+        return "위치 '" + location + "' 를 찾을 수 없습니다.";
+      }
+      lat = geoData.results[0].latitude;
+      lon = geoData.results[0].longitude;
+      if (geoData.results[0].name) cityName = geoData.results[0].name;
+    }
+
+    // 현재 날씨 API
+    const weatherUrl = "https://api.open-meteo.com/v1/forecast?latitude=" + lat +
+      "&longitude=" + lon +
+      "&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,precipitation" +
+      "&timezone=Asia/Seoul";
+    const resp = UrlFetchApp.fetch(weatherUrl, { muteHttpExceptions: true });
+    const data = JSON.parse(resp.getContentText());
+
+    if (!data.current) {
+      return "현재 날씨 데이터가 없습니다.";
+    }
+
+    const cur = data.current;
+    const desc = weatherCodeToText(cur.weather_code);
+    return "지역: " + cityName + "\n" +
+      "온도: " + cur.temperature_2m + "°C\n" +
+      "습도: " + cur.relative_humidity_2m + "%\n" +
+      "날씨: " + desc + "\n" +
+      "강수량: " + cur.precipitation + "mm\n" +
+      "풍속: " + cur.wind_speed_10m + "km/h\n" +
+      "관측시각: " + cur.time;
+  } catch (err) {
+    return "날씨 조회 오류: " + String(err);
   }
 }
 
