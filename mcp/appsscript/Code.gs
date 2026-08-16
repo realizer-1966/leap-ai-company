@@ -161,6 +161,12 @@ function runCustomTool(toolName, params) {
       return get_specific_date_weather(args);
     case "get_current_weather":
       return get_current_weather(args);
+    case "maps_convert_location_to_lat_lon":
+      return maps_convert_location_to_lat_lon(args);
+    case "maps_convert_lat_lon_to_location":
+      return maps_convert_lat_lon_to_location(args);
+    case "maps_get_route":
+      return maps_get_route(args);
     default:
       return null;
   }
@@ -263,6 +269,82 @@ function get_current_weather(args) {
       "관측시각: " + cur.time;
   } catch (err) {
     return "날씨 조회 오류: " + String(err);
+  }
+}
+
+/**
+ * 위치명 → 위도/경도 변환 (Apps Script Maps 서비스 직접 구현).
+ * URL: <WebAppURL>?accessKey=insytics&tool=maps_convert_location_to_lat_lon&location=Seoul
+ */
+function maps_convert_location_to_lat_lon(args) {
+  const location = (args && args.location) || "";
+  if (!location) return "location 파라미터가 필요합니다.";
+
+  try {
+    const geocoder = Maps.newGeocoder();
+    const result = geocoder.geocode(location);
+    if (result.status !== "OK" || !result.results || result.results.length === 0) {
+      return "위치 '" + location + "' 를 찾을 수 없습니다. (status: " + result.status + ")";
+    }
+    const loc = result.results[0].geometry.location;
+    return "위치: " + location + "\n위도: " + loc.lat + "\n경도: " + loc.lng;
+  } catch (err) {
+    return "지오코딩 오류: " + String(err);
+  }
+}
+
+/**
+ * 위도/경도 → 위치명 변환 (Apps Script Maps 서비스 직접 구현).
+ * URL: <WebAppURL>?accessKey=insytics&tool=maps_convert_lat_lon_to_location&lat=37.5665&lon=126.9780
+ */
+function maps_convert_lat_lon_to_location(args) {
+  const lat = parseFloat(args && args.lat);
+  const lon = parseFloat(args && args.lon);
+  if (isNaN(lat) || isNaN(lon)) return "lat/lon 파라미터가 필요합니다.";
+
+  try {
+    const geocoder = Maps.newGeocoder();
+    const result = geocoder.reverseGeocode(lat, lon);
+    if (result.status !== "OK" || !result.results || result.results.length === 0) {
+      return "좌표(" + lat + "," + lon + ")의 위치를 찾을 수 없습니다.";
+    }
+    return "좌표: " + lat + ", " + lon + "\n주소: " + result.results[0].formatted_address;
+  } catch (err) {
+    return "역지오코딩 오류: " + String(err);
+  }
+}
+
+/**
+ * 경로/거리 조회 (Apps Script Maps 서비스 직접 구현).
+ * URL: <WebAppURL>?accessKey=insytics&tool=maps_get_route&origin=Seoul&destination=Busan
+ */
+function maps_get_route(args) {
+  const origin = (args && args.origin) || "";
+  const destination = (args && args.destination) || "";
+  if (!origin || !destination) return "origin/destination 파라미터가 필요합니다.";
+
+  try {
+    const directionFinder = Maps.newDirectionFinder()
+      .setOrigin(origin)
+      .setDestination(destination)
+      .setMode(Maps.DirectionFinder.Mode.DRIVING);
+    const result = directionFinder.getDirections();
+
+    if (result.status !== "OK" || !result.routes || result.routes.length === 0) {
+      return "경로를 찾을 수 없습니다. (status: " + result.status + ")";
+    }
+
+    const route = result.routes[0];
+    const leg = route.legs[0];
+    const distanceKm = (leg.distance.value / 1000).toFixed(1);
+    const durationMin = Math.round(leg.duration.value / 60);
+
+    return "출발: " + origin + "\n도착: " + destination + "\n" +
+      "거리: " + distanceKm + " km\n" +
+      "예상시간: " + durationMin + " 분\n" +
+      "경유지 수: " + leg.steps.length;
+  } catch (err) {
+    return "경로 조회 오류: " + String(err);
   }
 }
 
