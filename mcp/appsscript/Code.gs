@@ -315,8 +315,9 @@ function maps_convert_lat_lon_to_location(args) {
 }
 
 /**
- * 경로/거리 조회 (Apps Script Maps 서비스 직접 구현).
+ * 경로/거리 조회 — OSRM 무료 공개 API 직접 구현.
  * URL: <WebAppURL>?accessKey=insytics&tool=maps_get_route&origin=Seoul&destination=Busan
+ * (origin/destination은 도시명 또는 위도,경도)
  */
 function maps_get_route(args) {
   const origin = (args && args.origin) || "";
@@ -324,28 +325,60 @@ function maps_get_route(args) {
   if (!origin || !destination) return "origin/destination 파라미터가 필요합니다.";
 
   try {
-    const directionFinder = Maps.newDirectionFinder()
-      .setOrigin(origin)
-      .setDestination(destination)
-      .setMode(Maps.DirectionFinder.Mode.DRIVING);
-    const result = directionFinder.getDirections();
-
-    if (result.status !== "OK" || !result.routes || result.routes.length === 0) {
-      return "경로를 찾을 수 없습니다. (status: " + result.status + ")";
+    // 도시명 → 위도/경도 변환
+    const originLL = resolveLatLon(origin);
+    const destLL = resolveLatLon(destination);
+    if (!originLL || !destLL) {
+      return "출발지/도착지 좌표를 확인할 수 없습니다.";
     }
 
-    const route = result.routes[0];
-    const leg = route.legs[0];
-    const distanceKm = (leg.distance.value / 1000).toFixed(1);
-    const durationMin = Math.round(leg.duration.value / 60);
+    // OSRM 경로 API (lon,lat 순서)
+    const url = "https://router.project-osrm.org/route/v1/driving/" +
+      originLL.lon + "," + originLL.lat + ";" +
+      destLL.lon + "," + destLL.lat +
+      "?overview=false&steps=false";
+    const resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    const data = JSON.parse(resp.getContentText());
+
+    if (data.code !== "Ok" || !data.routes || data.routes.length === 0) {
+      return "경로를 찾을 수 없습니다. (code: " + data.code + ")";
+    }
+
+    const route = data.routes[0];
+    const distanceKm = (route.distance / 1000).toFixed(1);
+    const durationMin = Math.round(route.duration / 60);
 
     return "출발: " + origin + "\n도착: " + destination + "\n" +
       "거리: " + distanceKm + " km\n" +
-      "예상시간: " + durationMin + " 분\n" +
-      "경유지 수: " + leg.steps.length;
+      "예상시간: " + durationMin + " 분";
   } catch (err) {
     return "경로 조회 오류: " + String(err);
   }
+}
+
+/**
+ * 도시명 또는 위도,경도 문자열을 {lat, lon} 객체로 변환.
+ * 도시명이면 open-meteo geocoding API 사용.
+ */
+function resolveLatLon(input) {
+  // 위도,경도 형식이면 그대로 사용
+  if (input.indexOf(",") > -1) {
+    const parts = input.split(",");
+    const lat = parseFloat(parts[0].trim());
+    const lon = parseFloat(parts[1].trim());
+    if (!isNaN(lat) && !isNaN(lon)) return { lat: lat, lon: lon };
+  }
+  // 도시명 → geocoding
+  try {
+    const geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=" +
+      encodeURIComponent(input) + "&count=1&language=ko&format=json";
+    const geoResp = UrlFetchApp.fetch(geoUrl, { muteHttpExceptions: true });
+    const geoData = JSON.parse(geoResp.getContentText());
+    if (geoData.results && geoData.results.length > 0) {
+      return { lat: geoData.results[0].latitude, lon: geoData.results[0].longitude };
+    }
+  } catch (e) {}
+  return null;
 }
 
 /**
